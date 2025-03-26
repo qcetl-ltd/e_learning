@@ -4,7 +4,6 @@ import { FaFacebook, FaMicrosoft } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 import { useEffect} from "react"; 
 
-
 const SignIn = () => {
   const [formData, setFormData] = useState({
     email: "",
@@ -71,7 +70,6 @@ const SignIn = () => {
     }
   };
   
-
   // Handle SSO Login
   const handleSSOLogin = (provider) => {
   window.location.href = `http://127.0.0.1:8000/login/${provider}`;
