@@ -4,6 +4,8 @@ from sqlalchemy import Column, Integer, String, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
+import smtplib
+import random
 from starlette.requests import Request
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
@@ -18,7 +20,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
+import logging
 
+# Dictionary to store temporary OTPs
+otp_storage = {}
+
+# Email Configuration
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+EMAIL_SENDER = "hashila999@gmail.com"  
+EMAIL_PASSWORD = "sqgo ipmv hawt ehiu" #app password
+
+# Function to send OTP via email
+def send_otp_email(email: str, otp: str):
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            message = f"Subject: Your OTP Code\n\nYour OTP code is: {otp}"
+            server.sendmail(EMAIL_SENDER, email, message)
+    except Exception as e:
+        print(f"Error sending email: {e}")
 
 # Load environment variables
 load_dotenv()
@@ -80,7 +102,10 @@ class UserCreate(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-    
+
+class OTPVerification(BaseModel):
+    email: EmailStr
+    otp: str
 
 # Dependency to get DB session
 def get_db():
@@ -89,6 +114,43 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Login and send OTP
+@app.post("/login")
+async def login(user: LoginRequest, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    
+    if not db_user or not pwd_context.verify(user.password, db_user.password):
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+
+    # Generate OTP
+    otp = str(random.randint(100000, 999999))
+    otp_storage[user.email] = otp
+
+    # Send OTP via email
+    send_otp_email(user.email, otp)
+
+    return {"message": "OTP sent to your email"}
+
+# Verify OTP and complete login
+@app.post("/verify-otp")
+async def verify_otp(otp_data: OTPVerification):
+    stored_otp = otp_storage.get(otp_data.email)
+    
+    if not stored_otp or stored_otp != otp_data.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # Generate JWT token
+    token_data = {"sub": otp_data.email}
+    token = create_access_token(data=token_data)
+
+    # Remove OTP after verification
+    del otp_storage[otp_data.email]
+
+    return {"email": otp_data.email, "token": token}
+    
+
 
 # JWT Token Generation
 def create_access_token(data: dict, expires_delta: timedelta = None):
@@ -172,6 +234,7 @@ oauth.register(
 @app.get("/login/{provider}")
 async def login(provider: str, request: Request):
     redirect_uri = request.url_for("auth_callback", provider=provider)
+    logging.info(f"Redirecting to: {redirect_uri}")  # Debugging
     return await oauth.create_client(provider).authorize_redirect(request, redirect_uri)
 
 @app.get("/auth/{provider}")
@@ -181,7 +244,6 @@ async def auth_callback(provider: str, request: Request, db: Session = Depends(g
     
     user_email = user_info.get("email")
     user_name = user_info.get("name")
-    user_picture = user_info.get("picture")
 
     existing_user = db.query(User).filter(User.email == user_email).first()
 
@@ -200,7 +262,6 @@ async def auth_callback(provider: str, request: Request, db: Session = Depends(g
     return {
         "email": new_user.email,
         "username": new_user.username,
-        "picture": user_picture,
         "jwt_token": jwt_token,  # Send JWT token in the response
         "provider": provider,
     }

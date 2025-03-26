@@ -10,6 +10,8 @@ const SignIn = () => {
     email: "",
     password: "",
   });
+  const [otp, setOtp] = useState("");
+  const [step, setStep] = useState("login"); // "login" -> "otp"
 
   const navigate = useNavigate(); // Initialize navigation
 
@@ -26,10 +28,32 @@ const SignIn = () => {
       const response = await fetch("http://127.0.0.1:8000/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-        }),
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert("OTP sent to your email");
+        setStep("otp"); // Move to OTP verification step
+      } else {
+        alert(`Error: ${data.detail}`);
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      alert("Something went wrong. Please try again.");
+    }
+  };
+
+  // Handle OTP verification
+  const handleOtpSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email, otp }),
       });
   
       const data = await response.json();
@@ -39,10 +63,10 @@ const SignIn = () => {
         alert("Login Successful!");
         navigate("/LoginDashboard");
       } else {
-        alert(`Error: ${data.detail || "Invalid credentials"}`);
+        alert(`Error: ${data.detail}`);
       }
     } catch (error) {
-      console.error("Login error:", error);
+      console.error("OTP Verification error:", error);
       alert("Something went wrong. Please try again.");
     }
   };
@@ -138,6 +162,22 @@ useEffect(() => {
             <a href="/forgot-password" className="text-primary">Forgot password?</a>
           </p>
         </form>
+
+        <form onSubmit={handleOtpSubmit}>
+            <div className="mb-3">
+              <label className="form-label">Enter OTP:</label>
+              <input
+                type="text"
+                className="form-control"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                required
+              />
+            </div>
+
+            <button type="submit" className="btn btn-success w-100">VERIFY OTP</button>
+          </form>
+
       </div>
     </div>
   );
