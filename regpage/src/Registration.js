@@ -61,11 +61,12 @@ const SignUp = () => {
         }, 500);
   
         if (response.ok) {
-          alert("User registered successfully!");
-          navigate("/");
+          alert("User registered successfully! Please check your email to verify your account.");
+          navigate("/verify-email");  // Navigate to the email verification page
         } else {
           alert(`Error: ${data.detail}`);
         }
+        
       } catch (error) {
         clearInterval(progressInterval);
         setLoading(false);

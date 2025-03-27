@@ -10,7 +10,7 @@ const LoginDashboard = () => {
     const storedUser = JSON.parse(localStorage.getItem("user"));
 
     if (!storedUser) {
-      navigate("/signin"); // Redirect if not logged in
+      navigate("/LoginDashboard"); // Redirect if not logged in
     } else {
       setUser(storedUser);
     }
@@ -18,7 +18,7 @@ const LoginDashboard = () => {
 
   const handleLogout = () => {
     localStorage.removeItem("user"); // Clear stored user data
-    navigate("/signin"); // Redirect to sign-in page
+    navigate("/"); // Redirect to sign-in page
   };
 
   return (
