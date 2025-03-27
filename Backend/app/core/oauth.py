@@ -10,6 +10,7 @@ oauth.register(
     client_id=settings.GOOGLE_CLIENT_ID,
     client_secret=settings.GOOGLE_CLIENT_SECRET,
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    redirect_uri ="http://localhost:8000/api/v1/auth/google/callback",
     client_kwargs={
         "scope": "openid profile email",
         "prompt": "select_account",

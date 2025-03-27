@@ -20,5 +20,5 @@ class UserOut(BaseModel):
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-    tenant_name: str
+    tenant_name: Optional[str] =None
     username: str

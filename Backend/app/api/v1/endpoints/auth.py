@@ -1,15 +1,7 @@
 import secrets
 import traceback
 import re
-
-from app.db.models import User, Tenant
-from app.db.session import SessionLocal
-from app.core.email import send_email
-from app.core.security import create_confirmation_token
-from app.services.auth import log_registration_attempt
-
-
-from fastapi import APIRouter, Depends, HTTPException, Request, Query ,status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,29 +11,21 @@ from authlib.integrations.starlette_client import OAuthError
 from passlib.context import CryptContext
 from typing import Optional
 from datetime import datetime
-from app.schemas.user import RegisterRequest
-from sqlalchemy.exc import IntegrityError
-
-from app.services.auth import authenticate_user
-from app.core.config import settings
-from pydantic import BaseModel
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
+from app.db.models import User, Tenant, AuthLog, Status
+from app.core.email import send_email
+from app.core.security import create_confirmation_token, create_access_token, create_refresh_token
 from app.core.oauth import oauth
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    verify_jwt_token,
-)
-from app.db.models import User, Tenant, AuthLog
-from app.schemas.user import UserOut
+from app.schemas.user import RegisterRequest, UserOut
 from app.api.routes.dependencies import get_current_user
 from app.core.config import settings
+from app.services.auth import authenticate_user, log_registration_attempt
+from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel, EmailStr
 
-
-router = APIRouter(prefix="/api/v1/auth" ,tags=["Authentication"])
+router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-router = APIRouter()
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -49,9 +33,9 @@ class TokenResponse(BaseModel):
     token_type: str
     expires_in: int = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
+
 # Helper functions
 async def get_or_create_user(db: AsyncSession, email: str, provider: str, user_info: dict):
-    
     try:
         result = await db.execute(select(User).filter(User.email == email))
         user = result.scalar_one_or_none()
@@ -98,6 +82,7 @@ async def handle_social_auth(provider: str, request: Request, db: AsyncSession):
     except OAuthError as e:
         raise HTTPException(status_code=400, detail=f"{provider} authentication failed: {str(e)}")
 
+
 # Auth endpoints
 @router.post("/login", response_model=TokenResponse)
 async def email_login(
@@ -117,13 +102,13 @@ async def email_login(
 @router.get("/{provider}")
 async def social_login(
     request: Request,
-    provider: str,):
+    provider: str,
+):
     if provider not in ["google", "facebook", "microsoft"]:
         raise HTTPException(status_code=404, detail="Provider not found")
     
-   
     try:
-        redirect_uri =  f"{settings.BACKEND_URL}/api/v1/auth/{provider}/callback"
+        redirect_uri = f"{settings.BACKEND_URL}/api/v1/auth/{provider}/callback"
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -133,24 +118,16 @@ async def social_login(
     return await oauth.create_client(provider).authorize_redirect(request, redirect_uri)
 
 
-@router.get("/{provider}/callback" , name="social_callback")
+@router.get("/{provider}/callback", name="social_callback")
 async def social_callback(
     provider: str,
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-   
-
     try:
-        print(f"Received callback from {provider}")
         client = oauth.create_client(provider)
         token = await client.authorize_access_token(request)
-        print(f"Token received: {token}")
-
-      
         user_info = await client.userinfo(token=token)
-        
-        print(f"User info: {user_info}")
 
         if not user_info.get("email"):
             raise HTTPException(status_code=400, detail="Email not provided by provider")
@@ -168,16 +145,14 @@ async def social_callback(
                 f"expires_in={settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60}"
         )
     except OAuthError as e:
-        print(f"OAuth error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"{provider} authentication failed: {str(e)}")
 
-    
+
 @router.get("/me", response_model=UserOut)
 async def get_current_user_profile(
     current_user: User = Depends(get_current_user)
 ):
     return current_user
-
 
 
 def validate_password(password: str) -> tuple[bool, str]:
@@ -194,107 +169,121 @@ def validate_password(password: str) -> tuple[bool, str]:
         return False, "Password must contain at least one special character"
     return True, ""
 
+# Ensure this function accepts the db argument
+async def log_registration_attempt(
+    db: AsyncSession,  # Add the db argument
+    user_id: Optional[int] = None,
+    success: bool = False,
+    request: Request = None,
+    failure_reason: Optional[str] = None
+):
+    # Assuming this function logs the registration attempt into the database
+    try:
+        # Create a log entry in your database
+        log_entry = AuthLog(
+            user_id=user_id,
+            success=success,
+            failure_reason=failure_reason,
+            ip_address=request.client.host if request else None,
+            user_agent=request.headers.get("user-agent") if request else None,
+            event_time=datetime.utcnow(),
+        )
+        db.add(log_entry)
+        await db.commit()
+    except Exception as e:
+        # Handle any exceptions that might occur during logging
+        raise HTTPException(status_code=500, detail=f"Error logging registration attempt: {str(e)}")
 
-
-async def get_db():
-    async with SessionLocal() as db:
-        yield db
 
 @router.post("/register")
 async def register_user(
     request: Request, 
-    user_data: RegisterRequest,  # Using Pydantic model
+    user_data: RegisterRequest,
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        async with db.begin():  # Atomic transaction
+        async with db.begin():
             # Password validation
             is_valid, error_msg = validate_password(user_data.password)
             if not is_valid:
-                raise HTTPException(400, detail=error_msg)
+                raise HTTPException(status_code=400, detail=error_msg)
 
-            # Check if user exists
-            user_result = await db.execute(select(User).filter(User.email == user_data.email))
-            if user_result.scalar_one_or_none():
-                raise HTTPException(400, detail="Email already registered")
+            # Check existing user
+            user_email_result = await db.execute(
+                select(User).filter(User.email == user_data.email)
+            )
+            if user_email_result.scalar_one_or_none():
+                raise HTTPException(400, "Email already registered")
+
+            user_username_result = await db.execute(
+                select(User).filter(User.username == user_data.username)
+            )
+            if user_username_result.scalar_one_or_none():
+                raise HTTPException(400, "Username already taken")
 
             # Tenant handling
-            tenant_result = await db.execute(
-                select(Tenant).filter(Tenant.name == user_data.tenant_name)
+            tenant_id = None
+            if user_data.tenant_name:
+                tenant_result = await db.execute(
+                    select(Tenant).filter(Tenant.name == user_data.tenant_name)
+                )
+                tenant = tenant_result.scalar_one_or_none()
+                
+                if not tenant:
+                    tenant = Tenant(name=user_data.tenant_name)
+                    db.add(tenant)
+                    await db.flush()
+                
+                tenant_id = tenant.id
+
+            # Ensure status_id 1 exists in the status table
+            status_result = await db.execute(
+                select(Status).filter(Status.id == 1)
             )
-            tenant = tenant_result.scalar_one_or_none()
-            
-            if not tenant:
-                tenant = Tenant(name=user_data.tenant_name)
-                db.add(tenant)
-                await db.flush()  # Get ID without commit
+            if not status_result.scalar_one_or_none():
+                db.add(Status(id=1, name='Active'))
+                await db.flush()
 
             # Create user
-            hashed_password = User.hash_password(user_data.password)
             user = User(
                 username=user_data.username,
                 email=user_data.email,
-                password_hash=hashed_password,
-                tenant_id=tenant.id,
-                status_id=2,
+                password_hash=User.hash_password(user_data.password),
+                tenant_id=tenant_id,
+                status_id=1
             )
             db.add(user)
-            await db.flush()
-
-            # Generate confirmation token (outside transaction)
-            confirmation_token = create_confirmation_token(user.email)
-            confirmation_url = f"{settings.FRONTEND_URL}/confirm-email/{confirmation_token}"
-
-            # Commit transaction
-            await db.commit()
-
-        # Send email (outside transaction)
-        send_email(...)
-
+        
+        # After successful commit
+        confirmation_token = create_confirmation_token(user.email)
+        confirmation_url = f"{settings.FRONTEND_URL}/confirm-email/{confirmation_token}"
+        
+        send_email(
+            to_email=user.email,
+            subject="Confirm Your Email",
+            body=f"Confirm email: {confirmation_url}"
+        )
+        
         # Log success
-        await log_registration_attempt(...)
-
-        return JSONResponse(201, {"message": "User created - confirmation email sent"})
-
-    except IntegrityError as e:
-        await db.rollback()
-        if "duplicate key" in str(e):
-            raise HTTPException(400, "Tenant/User already exists")
-        raise HTTPException(500, "Database error")
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        await log_registration_attempt(...)
-        raise HTTPException(500, "Internal Server Error")
-
-
-async def log_registration_attempt(
-    db: AsyncSession, 
-    user_id: int, 
-    success: bool, 
-    request: Request, 
-    failure_reason: Optional[str] = None
-):
-    try:
-        log_entry = AuthLog(
-            user_id=user_id,
-            event_id=1,  # Assuming 1 corresponds to User Registration
-            ip_address=request.client.host,
-            user_agent=request.headers.get("user-agent", "Unknown"),
-            event_time=datetime.utcnow(),
-            failure_reason=failure_reason,
-            success=success
+        await log_registration_attempt(
+            db=db,
+            user_id=user.id,
+            success=True,
+            request=request
         )
 
-        db.add(log_entry)
-        await db.commit()
-        await db.refresh(log_entry)  # Refresh the object to get the auto-generated ID
-
-        # Optionally log or return the entry to confirm successful commit
-        print(f"Log entry committed with ID: {log_entry.id}")
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={"message": "Registration successful. Please confirm your email."},
+        )
 
     except Exception as e:
-        # await db.rollback()  # Roll back in case of failure
-        print(f"Error logging registration attempt: {e}")
-        raise HTTPException(status_code=500, detail="Error logging registration attempt")
+        await db.rollback()
+        await log_registration_attempt(
+            db=db,
+            user_id=None,
+            success=False,
+            request=request,
+            failure_reason=str(e)
+        )
+        raise HTTPException(status_code=500, detail="Internal server error")

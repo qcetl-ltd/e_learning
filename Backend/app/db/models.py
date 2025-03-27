@@ -21,7 +21,7 @@ class User(Base):
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP, default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, default=func.now(), onupdate=func.now(), nullable=False)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
 
     tenant = relationship("Tenant", back_populates="users")
     status = relationship("Status", back_populates="users")

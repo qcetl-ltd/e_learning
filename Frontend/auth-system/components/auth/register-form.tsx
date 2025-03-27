@@ -53,21 +53,21 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
     username: "",
     password: "",
     confirmPassword: "",
-    tenant: "",
+    tenant_name: "",
   })
   const [errors, setErrors] = useState({
     email: "",
     username: "",
     password: "",
     confirmPassword: "",
-    tenant: "",
+    
   })
   const [touched, setTouched] = useState({
     email: false,
     username: false,
     password: false,
     confirmPassword: false,
-    tenant: false,
+    
   })
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -150,60 +150,18 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
   }
 
   const validateForm = () => {
-    // Mark all fields as touched
-    setTouched({
-      email: true,
-      username: true,
-      password: true,
-      confirmPassword: true,
-      tenant: true,
-    })
-
-    let valid = true
     const newErrors = {
-      email: "",
-      username: "",
-      password: "",
-      confirmPassword: "",
-      tenant: "",
-    }
-
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required"
-      valid = false
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = "Please enter a valid email address"
-      valid = false
-    }
-
-    if (!formData.username.trim()) {
-      newErrors.username = "Username is required"
-      valid = false
-    }
-
-    if (!formData.password.trim()) {
-      newErrors.password = "Password is required"
-      valid = false
-    } else if (!validatePassword(formData.password)) {
-      newErrors.password = "Password must be at least 8 characters long"
-      valid = false
-    }
-
-    if (!formData.confirmPassword.trim()) {
-      newErrors.confirmPassword = "Please confirm your password"
-      valid = false
-    } else if (formData.confirmPassword !== formData.password) {
-      newErrors.confirmPassword = "Passwords do not match"
-      valid = false
-    }
-    if (!formData.tenant.trim()) {
-      newErrors.tenant = "Organization name is required"
-      valid = false
-    }
-
-    setErrors(newErrors)
-    return valid
-  }
+      email: !formData.email ? "Email required" : "",
+      username: !formData.username ? "Username required" : "",
+      password: !formData.password ? "Password required" : 
+               formData.password.length < 8 ? "Minimum 8 characters" : "",
+      confirmPassword: formData.confirmPassword !== formData.password ? 
+                     "Passwords must match" : ""
+    };
+    
+    setErrors(newErrors);
+    return !Object.values(newErrors).some(Boolean);
+  };
 
   // Effect to handle success navigation when progress reaches 100%
   useEffect(() => {
@@ -218,37 +176,30 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setApiError("");
-  
     if (!validateForm()) return;
   
-    setIsLoading(true);
-    
     try {
       const response = await fetch('http://localhost:8000/api/v1/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' ,
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          tenant_name: formData.tenant 
-        }),
+        headers: { 'Content-Type': 'application/json'},
+        body: JSON.stringify( 
+          {
+            email: formData.email,
+            password: formData.password,
+            username: formData.username,
+            tenant_name: formData.tenant_name || undefined
+
+          } ),
       });
   
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Registration failed');
+        const error = await response.json();
+        throw new Error(error.detail || 'Registration failed');
       }
   
       onSuccess(formData.email);
     } catch (error) {
-      let errorMessage = 'Registration failed. Please try again.';
-      if (error instanceof Error) errorMessage = error.message;
-      setApiError(errorMessage);
-    } finally {
-      setIsLoading(false);
+      setApiError(error instanceof Error ? error.message : "Registration failed");
     }
   };
 
@@ -364,22 +315,19 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="tenant">Organization</Label>
+          <Label htmlFor="tenant_name">Organization (Optional)</Label>
           <Input
-            id="tenant"
-            name="tenant"
-            value={formData.tenant}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            placeholder="Your organization name"
-            className={touched.tenant && errors.tenant ? "border-red-500" : ""}
+            id="tenant_name"
+            name="tenant_name"
+            value={formData.tenant_name}
+            onChange={(e) => setFormData({...formData, tenant_name: e.target.value})}
+            placeholder="Your company name"
           />
-          {touched.tenant && errors.tenant && <p className="text-red-500 text-sm">{errors.tenant}</p>}
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="password">Password</Label>
-          <div className="relative">
+          
             <Input
               id="password"
               name="password"
@@ -396,7 +344,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
               ) : validatePassword(formData.password) ? (
                 <Check className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-500" />
               ) : null)}
-          </div>
+          
           {touched.password && errors.password && <p className="text-red-500 text-sm">{errors.password}</p>}
 
           {/* Password strength indicators */}
