@@ -15,7 +15,6 @@ msg["To"] = EMAIL_TO
 
 try:
     server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-    server.starttls()
     server.login(SMTP_USER, SMTP_PASSWORD)
     server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
     server.quit()

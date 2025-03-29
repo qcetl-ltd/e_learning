@@ -1,7 +1,6 @@
-import secrets
-import traceback
+import logging
 import re
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status ,Body
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,18 +13,20 @@ from datetime import datetime
 from app.db.session import get_db, SessionLocal
 from app.db.models import User, Tenant, AuthLog, Status
 from app.core.email import send_email
-from app.core.security import create_confirmation_token, create_access_token, create_refresh_token
+from app.core.security import create_confirmation_token, create_access_token, create_refresh_token 
 from app.core.oauth import oauth
-from app.schemas.user import RegisterRequest, UserOut
+from app.schemas.user import RegisterRequest, UserOut ,UserLogin
 from app.api.routes.dependencies import get_current_user
 from app.core.config import settings
 from app.services.auth import authenticate_user, log_registration_attempt
-from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, EmailStr
+from app.core.security import authenticate_user_by_email
+from app.db.models import User
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+logger = logging.getLogger(__name__)
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -33,6 +34,9 @@ class TokenResponse(BaseModel):
     token_type: str
     expires_in: int = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
+class EmailLoginRequest(BaseModel):
+    email: str
+    password: str
 
 # Helper functions
 async def get_or_create_user(db: AsyncSession, email: str, provider: str, user_info: dict):
@@ -83,21 +87,36 @@ async def handle_social_auth(provider: str, request: Request, db: AsyncSession):
         raise HTTPException(status_code=400, detail=f"{provider} authentication failed: {str(e)}")
 
 
-# Auth endpoints
 @router.post("/login", response_model=TokenResponse)
 async def email_login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    user_data: UserLogin,
+    db: AsyncSession = Depends(get_db),
 ):
-    user = await authenticate_user(db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    return {
-        "access_token": create_access_token({"sub": str(user.id)}),
-        "refresh_token": create_refresh_token({"sub": str(user.id)}),
-        "token_type": "bearer",
-    }
+    try:
+       
+        user = await authenticate_user_by_email(db, user_data.email, user_data.password)
+
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        access_token = create_access_token({"sub": str(user.id)})
+        refresh_token = create_refresh_token({"sub": str(user.id)})
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
 
 @router.get("/{provider}")
 async def social_login(
@@ -171,28 +190,29 @@ def validate_password(password: str) -> tuple[bool, str]:
 
 # Ensure this function accepts the db argument
 async def log_registration_attempt(
-    db: AsyncSession,  # Add the db argument
+    db: AsyncSession,  
     user_id: Optional[int] = None,
     success: bool = False,
     request: Request = None,
     failure_reason: Optional[str] = None
 ):
-    # Assuming this function logs the registration attempt into the database
+    
     try:
-        # Create a log entry in your database
+       
         log_entry = AuthLog(
             user_id=user_id,
             success=success,
             failure_reason=failure_reason,
             ip_address=request.client.host if request else None,
-            user_agent=request.headers.get("user-agent") if request else None,
+            user_agent=request.headers.get("user-agent", "unknown"),
             event_time=datetime.utcnow(),
         )
         db.add(log_entry)
         await db.commit()
     except Exception as e:
-        # Handle any exceptions that might occur during logging
-        raise HTTPException(status_code=500, detail=f"Error logging registration attempt: {str(e)}")
+       
+        await db.rollback()
+        print(f"Error logging auth attempt: {str(e)}")
 
 
 @router.post("/register")
@@ -250,8 +270,12 @@ async def register_user(
                 email=user_data.email,
                 password_hash=User.hash_password(user_data.password),
                 tenant_id=tenant_id,
-                status_id=1
+                status_id=1,
+                
             )
+
+            
+                                         
             db.add(user)
         
         # After successful commit
@@ -264,18 +288,6 @@ async def register_user(
             body=f"Confirm email: {confirmation_url}"
         )
         
-        # Log success
-        await log_registration_attempt(
-            db=db,
-            user_id=user.id,
-            success=True,
-            request=request
-        )
-
-        return JSONResponse(
-            status_code=status.HTTP_201_CREATED,
-            content={"message": "Registration successful. Please confirm your email."},
-        )
 
     except Exception as e:
         await db.rollback()

@@ -57,25 +57,6 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
 
     return db_user
 
-# @router.get("/confirm/{token}")
-# def confirm_email(token: str, db: Session = Depends(get_db)):
-#     try:
-#         # Decode the token to get the email
-#         payload = jwt.decode(token, settings.SMTP_PASSWORD, algorithms=["HS256"])
-#         email = payload.get("email")
-#     except jwt.ExpiredSignatureError:
-#         raise HTTPException(status_code=400, detail="Token expired")
-#     except jwt.JWTError:
-#         raise HTTPException(status_code=400, detail="Invalid token")
-
-#     # Check if the user exists
-#     db_user = db.query(User).filter(User.email == email).first()
-#     if db_user:
-        
-#         return {"msg": "Email confirmed successfully"}
-#     else:
-#         raise HTTPException(status_code=404, detail="User not found")
-
 @router.get("/confirm-email/{token}")
 async def confirm_email(token: str, db: AsyncSession = Depends(get_db)):
     try:
@@ -97,7 +78,7 @@ async def confirm_email(token: str, db: AsyncSession = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Email already confirmed")
 
         # Update user status to active
-        user.status_id = 1  # 1 = Active
+        user.status_id = 1 
         await db.commit()
         
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard")

@@ -1,5 +1,5 @@
 from app.db.base_class import Base
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP, Boolean ,JSON
 from datetime import datetime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,6 +22,9 @@ class User(Base):
     created_at = Column(TIMESTAMP, default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, default=func.now(), onupdate=func.now(), nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    is_2fa_enabled = Column(Boolean, default=False,nullable=True)
+    otp_secret =Column(String(255), nullable=True)
+    otp_backup_codes = Column(JSON , nullable=True)
 
     tenant = relationship("Tenant", back_populates="users")
     status = relationship("Status", back_populates="users")
@@ -33,12 +36,11 @@ class User(Base):
             raise ValueError("Password cannot be empty")
         return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-    @classmethod
-    def verify_password(cls, password: str, password_hash: str) -> bool:
-        if not password_hash:
-            return False
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
-
+    def verify_password(self, password: str) -> bool:
+        return bcrypt.checkpw(
+            password.encode("utf-8"), 
+            self.password_hash.encode("utf-8") 
+        )
 
 class Status(Base):
     __tablename__ = "status"
@@ -56,7 +58,7 @@ class AuthLog(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=True, index=True)
     ip_address = Column(INET, nullable=True)
     user_agent = Column(String(255), nullable=False)
     event_time = Column(TIMESTAMP, default=func.now(), nullable=False)

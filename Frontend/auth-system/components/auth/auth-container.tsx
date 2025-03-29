@@ -55,7 +55,7 @@ export default function AuthContainer() {
               onClick={toggleForm}
               className="mt-6 w-full bg-black text-white py-2 rounded-md hover:bg-black/90 transition-colors"
             >
-              Back to Login
+              Back to Dashboard
             </button>
           </div>
         ) : (

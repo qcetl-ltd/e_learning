@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     
     # Backend URL
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+    PROJECT_NAME: str = os.getenv("PROJECT_NAME", "FastAPI")
     
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     class Config:

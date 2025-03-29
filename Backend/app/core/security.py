@@ -1,5 +1,8 @@
 import jwt
-from fastapi import HTTPException, Depends
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.db.models import User
 from jwt import PyJWTError
 from app.db.session import SessionLocal
 from sqlalchemy.future import select
@@ -7,11 +10,15 @@ from app.db.models import User
 from datetime import datetime, timedelta
 from typing import Optional
 from app.core.config import settings
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
+
 
 def create_access_token(data:dict,expires_delta:Optional[timedelta]=None):
     to_encode = data.copy()
@@ -52,3 +59,17 @@ def create_confirmation_token(email: str) -> str:
     payload = {"email": email, "exp": expiration}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)  
 
+
+async def authenticate_user_by_email(db: AsyncSession, email: str, password: str):
+    result = await db.execute(select(User).filter(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user or not user.verify_password(password):
+        return None
+    return user
+
+async def authenticate_user(db: AsyncSession, username: str, password: str):
+    result = await db.execute(select(User).filter(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user or not user.verify_password(password):
+        return None
+    return user

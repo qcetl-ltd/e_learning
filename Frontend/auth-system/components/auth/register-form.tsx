@@ -9,10 +9,9 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Mail, Facebook, Loader2, ComputerIcon as Microsoft, Check, AlertCircle,Github, ComputerIcon } from "lucide-react"
 import ProgressIndicator from "./progress-indicator"
-import { tokenManager } from "@/lib/auth/token-manager"
 import { JSX } from "react/jsx-runtime"
 import { useRouter } from "next/navigation"
-
+import { toast } from "sonner";
 interface RegisterFormProps {
   onSuccess: (email: string) => void
 }
@@ -55,6 +54,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
     confirmPassword: "",
     tenant_name: "",
   })
+  
   const [errors, setErrors] = useState({
     email: "",
     username: "",
@@ -187,8 +187,8 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
             email: formData.email,
             password: formData.password,
             username: formData.username,
-            tenant_name: formData.tenant_name || undefined
-
+            tenant_name: formData.tenant_name || undefined,
+           
           } ),
       });
   
@@ -196,6 +196,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
         const error = await response.json();
         throw new Error(error.detail || 'Registration failed');
       }
+      toast.success("User registered successfully!");
   
       onSuccess(formData.email);
     } catch (error) {
@@ -431,8 +432,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
           )}
         </div>
 
-        {apiError && <p className="text-red-500 text-sm">{apiError}</p>}
-
+        
         <Button
           type="submit"
           className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold"
